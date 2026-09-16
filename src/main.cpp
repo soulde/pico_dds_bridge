@@ -4,14 +4,12 @@
 #include "pico_dds_bridge/xrobotoolkit_client.hpp"
 
 #include <atomic>
-#include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <exception>
 #include <iostream>
 #include <string>
-#include <string_view>
 
 namespace {
 
@@ -31,17 +29,21 @@ Options parse_options(const int argc, char** argv) {
     Options options{};
 
     for (int i = 1; i < argc; ++i) {
-        const std::string_view arg{argv[i]};
+        const std::string arg{argv[i]};
 
         if (arg == "--domain" && i + 1 < argc) {
-            const std::string_view value{argv[++i]};
-            std::uint32_t parsed{};
-            const auto [ptr, ec] = std::from_chars(
-                value.data(), value.data() + value.size(), parsed);
-            if (ec != std::errc{} || ptr != value.data() + value.size()) {
+            const std::string value{argv[++i]};
+            try {
+                std::size_t parsed_length = 0;
+                const unsigned long parsed = std::stoul(value, &parsed_length);
+                if (parsed_length != value.size() ||
+                    parsed > std::numeric_limits<std::uint32_t>::max()) {
+                    throw std::runtime_error("invalid --domain value");
+                }
+                options.domain_id = static_cast<std::uint32_t>(parsed);
+            } catch (const std::exception&) {
                 throw std::runtime_error("invalid --domain value");
             }
-            options.domain_id = parsed;
         } else if (arg == "--topic" && i + 1 < argc) {
             options.topic = argv[++i];
         } else if (arg == "--robot-coordinates") {
@@ -88,8 +90,9 @@ int main(int argc, char** argv) {
         std::uint64_t sequence = 0;
 
         while (g_running.load()) {
-            auto raw = client.wait_pop(std::chrono::milliseconds(100));
-            if (!raw.has_value()) {
+            std::unique_ptr<pico_dds_bridge::RawFrame> raw =
+                client.wait_pop(std::chrono::milliseconds(100));
+            if (!raw) {
                 continue;
             }
 
@@ -98,7 +101,7 @@ int main(int argc, char** argv) {
                 sequence++,
                 raw->receive_timestamp_ns);
 
-            if (!frame.has_value()) {
+                if (!frame) {
                 continue;
             }
 

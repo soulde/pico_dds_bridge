@@ -37,28 +37,28 @@ void XRoboToolkitClient::stop() {
     (void)PXREADeinit();
 
     {
-        std::lock_guard lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_);
         queue_.clear();
     }
     cv_.notify_all();
     server_connected_.store(false);
 }
 
-std::optional<RawFrame> XRoboToolkitClient::wait_pop(
+std::unique_ptr<RawFrame> XRoboToolkitClient::wait_pop(
     const std::chrono::milliseconds timeout) {
 
-    std::unique_lock lock(mutex_);
+    std::unique_lock<std::mutex> lock(mutex_);
     cv_.wait_for(lock, timeout, [this] {
         return !queue_.empty() || !started_.load();
     });
 
     if (queue_.empty()) {
-        return std::nullopt;
+        return std::unique_ptr<RawFrame>();
     }
 
     RawFrame frame = std::move(queue_.front());
     queue_.pop_front();
-    return frame;
+    return std::unique_ptr<RawFrame>(new RawFrame(frame));
 }
 
 void XRoboToolkitClient::callback_thunk(
@@ -116,13 +116,12 @@ void XRoboToolkitClient::on_callback(
     }
 
     // Important: SDK owns user_data. Copy it inside the callback immediately.
-    RawFrame frame{
-        .json = std::string(static_cast<const char*>(user_data)),
-        .receive_timestamp_ns = realtime_now_ns(),
-    };
+    RawFrame frame;
+    frame.json = std::string(static_cast<const char*>(user_data));
+    frame.receive_timestamp_ns = realtime_now_ns();
 
     {
-        std::lock_guard lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_);
 
         // Tracking is real-time data. If consumers fall behind, keep the newest
         // samples instead of accumulating latency.

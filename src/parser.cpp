@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace pico_dds_bridge {
@@ -35,14 +34,14 @@ json jsonish(const json& value) {
 
 const json* member_any(
     const json& object,
-    std::initializer_list<std::string_view> names) {
+    std::initializer_list<const char*> names) {
 
     if (!object.is_object()) {
         return nullptr;
     }
 
     for (const auto name : names) {
-        const auto it = object.find(std::string(name));
+        const auto it = object.find(name);
         if (it != object.end()) {
             return &(*it);
         }
@@ -53,11 +52,11 @@ const json* member_any(
 
 std::int64_t int64_or(
     const json& object,
-    std::initializer_list<std::string_view> names,
+    std::initializer_list<const char*> names,
     const std::int64_t fallback = 0) {
 
     const json* value = member_any(object, names);
-    if (value == nullptr) {
+        if (!value) {
         return fallback;
     }
 
@@ -76,7 +75,7 @@ std::int64_t int64_or(
 
 std::uint32_t uint32_or(
     const json& object,
-    std::initializer_list<std::string_view> names,
+    std::initializer_list<const char*> names,
     const std::uint32_t fallback = 0) {
 
     const auto value = int64_or(object, names, static_cast<std::int64_t>(fallback));
@@ -85,7 +84,7 @@ std::uint32_t uint32_or(
 
 float float_or(
     const json& object,
-    std::initializer_list<std::string_view> names,
+    std::initializer_list<const char*> names,
     const float fallback = 0.0F) {
 
     const json* value = member_any(object, names);
@@ -108,7 +107,7 @@ float float_or(
 
 bool bool_or(
     const json& object,
-    std::initializer_list<std::string_view> names,
+    std::initializer_list<const char*> names,
     const bool fallback = false) {
 
     const json* value = member_any(object, names);
@@ -173,7 +172,7 @@ bool parse_pose(const json& object, Pose& out) {
 
 void parse_vec6(
     const json& object,
-    std::initializer_list<std::string_view> keys,
+    std::initializer_list<const char*> keys,
     Vec3& linear,
     Vec3& angular) {
 
@@ -218,11 +217,13 @@ TrackingState parse_tracking_state(
     // therefore the most portable baseline validity signal.
     state.valid = pose_ok;
 
-    if (const json* status = member_any(object, {"status"}); status != nullptr) {
+    const json* status = member_any(object, {"status"});
+    if (status != nullptr) {
         state.valid = pose_ok && uint32_or(object, {"status"}, 0) != 0;
     }
 
-    if (const json* hand_status = member_any(object, {"s"}); hand_status != nullptr) {
+    const json* hand_status = member_any(object, {"s"});
+    if (hand_status != nullptr) {
         const std::uint32_t bits = uint32_or(object, {"s"}, 0);
         state.valid = pose_ok && ((bits & 0x3U) != 0U);
     }
@@ -279,7 +280,7 @@ HandState parse_hand(const json& object) {
 
 json child_json(
     const json& root,
-    std::initializer_list<std::string_view> names) {
+    std::initializer_list<const char*> names) {
 
     const json* child = member_any(root, names);
     return child == nullptr ? json{} : jsonish(*child);
@@ -287,8 +288,8 @@ json child_json(
 
 }  // namespace
 
-std::optional<TrackingFrame> TrackingParser::parse(
-    const std::string_view callback_json,
+std::unique_ptr<TrackingFrame> TrackingParser::parse(
+    const std::string& callback_json,
     const std::uint64_t sequence,
     const std::int64_t receive_timestamp_ns) const {
 
@@ -297,7 +298,7 @@ std::optional<TrackingFrame> TrackingParser::parse(
     try {
         envelope = json::parse(callback_json);
     } catch (...) {
-        return std::nullopt;
+        return std::unique_ptr<TrackingFrame>();
     }
 
     // XRoboToolkit has used both "functionName" and "function" in examples.
@@ -305,15 +306,16 @@ std::optional<TrackingFrame> TrackingParser::parse(
     if (function_value != nullptr && function_value->is_string()) {
         const auto function_name = function_value->get<std::string>();
         if (function_name != "Tracking") {
-            return std::nullopt;
+            return std::unique_ptr<TrackingFrame>();
         }
     }
 
     json root = envelope;
-    if (const json* value = member_any(envelope, {"value"}); value != nullptr) {
+    const json* value = member_any(envelope, {"value"});
+    if (value != nullptr) {
         root = jsonish(*value);
         if (!root.is_object()) {
-            return std::nullopt;
+            return std::unique_ptr<TrackingFrame>();
         }
     }
 
@@ -374,8 +376,8 @@ std::optional<TrackingFrame> TrackingParser::parse(
             {"timeStampNs", "timestampNs"},
             frame.source_timestamp_ns);
 
-        if (const json* joints = member_any(body, {"joints"});
-            joints != nullptr && joints->is_array()) {
+        const json* joints = member_any(body, {"joints"});
+        if (joints != nullptr && joints->is_array()) {
 
             const auto count = std::min<std::size_t>(
                 joints->size(), frame.body.size());
@@ -401,8 +403,8 @@ std::optional<TrackingFrame> TrackingParser::parse(
             {"timeStampNs", "timestampNs"},
             frame.source_timestamp_ns);
 
-        if (const json* joints = member_any(motion, {"joints"});
-            joints != nullptr && joints->is_array()) {
+        const json* joints = member_any(motion, {"joints"});
+        if (joints != nullptr && joints->is_array()) {
 
             const auto count = std::min<std::size_t>(
                 joints->size(), frame.trackers.size());
@@ -416,7 +418,7 @@ std::optional<TrackingFrame> TrackingParser::parse(
         }
     }
 
-    return frame;
+    return std::unique_ptr<TrackingFrame>(new TrackingFrame(frame));
 }
 
 }  // namespace pico_dds_bridge

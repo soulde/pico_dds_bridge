@@ -9,6 +9,10 @@ struct Vec3 {
     double x{};
     double y{};
     double z{};
+
+    Vec3() = default;
+    Vec3(const double x_value, const double y_value, const double z_value)
+        : x(x_value), y(y_value), z(z_value) {}
 };
 
 struct Quaternion {
@@ -16,6 +20,14 @@ struct Quaternion {
     double y{};
     double z{};
     double w{1.0};
+
+    Quaternion() = default;
+    Quaternion(
+        const double x_value,
+        const double y_value,
+        const double z_value,
+        const double w_value)
+        : x(x_value), y(y_value), z(z_value), w(w_value) {}
 };
 
 struct Pose {

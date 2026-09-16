@@ -16,7 +16,7 @@ XRoboToolkit-PC-Service
     |
     | PXREARobotSDK / gRPC
     v
-pico_dds_bridge   (C++20)
+pico_dds_bridge   (C++11)
     |
     | DDS topic: pico/tracking
     v
@@ -37,7 +37,7 @@ as a hidden side effect in the transport adapter.
 
 Ubuntu 22.04/24.04:
 
-- GCC/Clang with C++20
+- GCC/Clang with C++11
 - CMake >= 3.22
 - Ninja
 - Eclipse Cyclone DDS

@@ -7,8 +7,8 @@
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
+#include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 
 namespace pico_dds_bridge {
@@ -29,13 +29,13 @@ public:
     bool start();
     void stop();
 
-    std::optional<RawFrame> wait_pop(std::chrono::milliseconds timeout);
+    std::unique_ptr<RawFrame> wait_pop(std::chrono::milliseconds timeout);
 
-    [[nodiscard]] bool server_connected() const noexcept {
+    bool server_connected() const noexcept {
         return server_connected_.load(std::memory_order_relaxed);
     }
 
-    [[nodiscard]] std::uint64_t dropped_frames() const noexcept {
+    std::uint64_t dropped_frames() const noexcept {
         return dropped_frames_.load(std::memory_order_relaxed);
     }
 
