@@ -1,0 +1,115 @@
+module pico_dds
+{
+    @final
+    struct Vec3
+    {
+        double x;
+        double y;
+        double z;
+    };
+
+    @final
+    struct Quaternion
+    {
+        double x;
+        double y;
+        double z;
+        double w;
+    };
+
+    @final
+    struct Pose
+    {
+        Vec3 position;
+        Quaternion orientation;
+    };
+
+    @final
+    struct TrackingState
+    {
+        boolean valid;
+        unsigned long status;
+        long long timestamp_ns;
+
+        Pose pose;
+
+        Vec3 linear_velocity;
+        Vec3 angular_velocity;
+        Vec3 linear_acceleration;
+        Vec3 angular_acceleration;
+    };
+
+    @final
+    struct ControllerState
+    {
+        TrackingState tracking;
+
+        float axis_x;
+        float axis_y;
+        float grip;
+        float trigger;
+
+        boolean axis_click;
+        boolean primary_button;
+        boolean secondary_button;
+        boolean menu_button;
+    };
+
+    @final
+    struct HandJoint
+    {
+        TrackingState tracking;
+        float radius;
+    };
+
+    @final
+    struct HandState
+    {
+        boolean active;
+        unsigned long count;
+        float scale;
+        long long timestamp_ns;
+
+        HandJoint joints[26];
+    };
+
+    @final
+    struct BodyJoint
+    {
+        unsigned long role;
+        TrackingState tracking;
+        long long imu_timestamp_ns;
+    };
+
+    @final
+    struct MotionTracker
+    {
+        unsigned long index;
+        TrackingState tracking;
+    };
+
+    @final
+    struct TrackingFrame
+    {
+        unsigned long long frame_seq;
+
+        long long source_timestamp_ns;
+        long long receive_timestamp_ns;
+
+        long input_mode;
+
+        TrackingState head;
+
+        ControllerState left_controller;
+        ControllerState right_controller;
+
+        HandState left_hand;
+        HandState right_hand;
+
+        unsigned long body_count;
+        BodyJoint body[24];
+
+        unsigned long tracker_count;
+        MotionTracker trackers[5];
+    };
+};

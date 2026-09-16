@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pico-tracking"
+version = "0.1.0"
+description = "DDS-only Python client for the PICO tracking bridge"
+requires-python = ">=3.10"
+dependencies = [
+    "cyclonedds==11.0.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pico_tracking*"]
