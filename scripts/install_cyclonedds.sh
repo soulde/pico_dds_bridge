@@ -22,6 +22,8 @@ git -C "${SRC}" checkout "${CYCLONEDDS_REF}"
 cmake -S "${SRC}" -B "${SRC}/build-pico-dds" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="${PREFIX}" \
+    -DCMAKE_PREFIX_PATH="${ROOT}/.deps/iceoryx" \
+    -DENABLE_ICEORYX=ON \
     -DBUILD_EXAMPLES=OFF \
     -DBUILD_TESTING=OFF
 

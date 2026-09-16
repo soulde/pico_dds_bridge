@@ -16,7 +16,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 find_package(Threads REQUIRED)
 find_package(CycloneDDS REQUIRED)
-find_package(nlohmann_json 3.2 REQUIRED)
+find_package(simdjson CONFIG REQUIRED)
 find_package(PXREARobotSDK REQUIRED)
 
 # Generate CycloneDDS C type-support from IDL.
@@ -43,7 +43,7 @@ target_link_libraries(pico_bridge_core
     PUBLIC
         CycloneDDS::ddsc
         pico_tracking_idl
-        nlohmann_json::nlohmann_json
+        simdjson::simdjson
         PXREA::RobotSDK
         Threads::Threads
 )

@@ -12,5 +12,4 @@ sudo apt-get install -y \
     flex \
     python3 \
     python3-pip \
-    python3-venv \
-    nlohmann-json3-dev
+    python3-venv

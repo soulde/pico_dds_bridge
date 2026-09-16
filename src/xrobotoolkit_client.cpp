@@ -1,13 +1,20 @@
 #include "pico_dds_bridge/xrobotoolkit_client.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <utility>
 
 namespace pico_dds_bridge {
 
 XRoboToolkitClient::XRoboToolkitClient(const std::size_t queue_capacity)
-    : queue_capacity_(queue_capacity) {}
+    : queue_capacity_(std::min(queue_capacity, kQueueDepth)) {
+    for (std::size_t i = 0; i < kQueueDepth; ++i) {
+        slots_[i].data.reset(new char[kMaxJsonSize + simdjson::SIMDJSON_PADDING]);
+        states_[i] = 0;
+    }
+}
 
 XRoboToolkitClient::~XRoboToolkitClient() {
     stop();
@@ -38,27 +45,45 @@ void XRoboToolkitClient::stop() {
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        queue_.clear();
+        ready_head_ = 0;
+        ready_tail_ = 0;
+        ready_size_ = 0;
+        for (std::size_t i = 0; i < kQueueDepth; ++i) {
+            states_[i] = 0;
+        }
     }
     cv_.notify_all();
     server_connected_.store(false);
 }
 
-std::unique_ptr<RawFrame> XRoboToolkitClient::wait_pop(
+RawFrameSlot* XRoboToolkitClient::wait_pop(
     const std::chrono::milliseconds timeout) {
 
     std::unique_lock<std::mutex> lock(mutex_);
     cv_.wait_for(lock, timeout, [this] {
-        return !queue_.empty() || !started_.load();
+        return ready_size_ != 0 || !started_.load();
     });
 
-    if (queue_.empty()) {
-        return std::unique_ptr<RawFrame>();
+    if (ready_size_ == 0) {
+        return nullptr;
     }
 
-    RawFrame frame = std::move(queue_.front());
-    queue_.pop_front();
-    return std::unique_ptr<RawFrame>(new RawFrame(frame));
+    const std::size_t index = ready_[ready_head_];
+    ready_head_ = (ready_head_ + 1) % kQueueDepth;
+    --ready_size_;
+    states_[index] = 2;
+    return &slots_[index];
+}
+
+void XRoboToolkitClient::release(RawFrameSlot* slot) {
+    if (slot == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    const std::size_t index = static_cast<std::size_t>(slot - slots_.data());
+    if (index < kQueueDepth) {
+        states_[index] = 0;
+    }
 }
 
 void XRoboToolkitClient::callback_thunk(
@@ -116,21 +141,59 @@ void XRoboToolkitClient::on_callback(
     }
 
     // Important: SDK owns user_data. Copy it inside the callback immediately.
-    RawFrame frame;
-    frame.json = std::string(static_cast<const char*>(user_data));
-    frame.receive_timestamp_ns = realtime_now_ns();
-
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
-        // Tracking is real-time data. If consumers fall behind, keep the newest
-        // samples instead of accumulating latency.
-        if (queue_.size() >= queue_capacity_) {
-            queue_.pop_front();
+        std::size_t index = kQueueDepth;
+        for (std::size_t i = 0; i < queue_capacity_; ++i) {
+            if (states_[i] == 0) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index == kQueueDepth && ready_size_ >= queue_capacity_) {
+            const std::size_t old_index = ready_[ready_head_];
+            ready_head_ = (ready_head_ + 1) % kQueueDepth;
+            --ready_size_;
+            states_[old_index] = 0;
+            index = old_index;
             dropped_frames_.fetch_add(1, std::memory_order_relaxed);
         }
 
-        queue_.push_back(std::move(frame));
+        if (index == kQueueDepth) {
+            dropped_frames_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+
+        RawFrameSlot& frame = slots_[index];
+        const char* source = static_cast<const char*>(user_data);
+        const std::size_t length = std::strlen(source);
+        if (length > kMaxJsonSize) {
+            dropped_frames_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+
+        std::memcpy(frame.data.get(), source, length);
+        std::memset(
+            frame.data.get() + length,
+            0,
+            simdjson::SIMDJSON_PADDING);
+        frame.length = length;
+        frame.receive_timestamp_ns = realtime_now_ns();
+        states_[index] = 1;
+
+        if (ready_size_ >= queue_capacity_) {
+            const std::size_t old_index = ready_[ready_head_];
+            ready_head_ = (ready_head_ + 1) % kQueueDepth;
+            --ready_size_;
+            states_[old_index] = 0;
+            dropped_frames_.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        ready_[ready_tail_] = index;
+        ready_tail_ = (ready_tail_ + 1) % kQueueDepth;
+        ++ready_size_;
     }
 
     cv_.notify_one();

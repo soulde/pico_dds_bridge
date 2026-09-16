@@ -1,8 +1,7 @@
 #pragma once
 
-#include "pico_dds_bridge/model.hpp"
-
 #include <dds/dds.h>
+#include "pico_tracking.h"
 
 #include <cstdint>
 #include <string>
@@ -20,12 +19,19 @@ public:
     DdsPublisher(const DdsPublisher&) = delete;
     DdsPublisher& operator=(const DdsPublisher&) = delete;
 
-    void publish(const TrackingFrame& frame);
+    pico_dds_TrackingFrame* request_sample();
+    void publish(pico_dds_TrackingFrame* sample);
+    void cancel(pico_dds_TrackingFrame*& sample);
+
+    bool shared_memory_available() const noexcept {
+        return shared_memory_available_;
+    }
 
 private:
     dds_entity_t participant_{DDS_ENTITY_NIL};
     dds_entity_t topic_{DDS_ENTITY_NIL};
     dds_entity_t writer_{DDS_ENTITY_NIL};
+    bool shared_memory_available_{false};
 };
 
 }  // namespace pico_dds_bridge

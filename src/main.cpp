@@ -9,7 +9,10 @@
 #include <cstdint>
 #include <exception>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <string>
+#include <chrono>
 
 namespace {
 
@@ -23,6 +26,7 @@ struct Options {
     std::uint32_t domain_id{0};
     std::string topic{"pico/tracking"};
     bool robot_coordinates{false};
+    bool require_shm{false};
 };
 
 Options parse_options(const int argc, char** argv) {
@@ -48,9 +52,11 @@ Options parse_options(const int argc, char** argv) {
             options.topic = argv[++i];
         } else if (arg == "--robot-coordinates") {
             options.robot_coordinates = true;
+        } else if (arg == "--require-shm") {
+            options.require_shm = true;
         } else if (arg == "--help" || arg == "-h") {
             std::cout
-                << "Usage: pico_dds_bridge [--domain N] [--topic NAME] [--robot-coordinates]\n"
+                << "Usage: pico_dds_bridge [--domain N] [--topic NAME] [--robot-coordinates] [--require-shm]\n"
                 << "Default domain: 0\n"
                 << "Default topic : pico/tracking\n"
                 << "Coordinate output: PICO (default), or robot (X forward, Y left, Z up)\n";
@@ -76,8 +82,16 @@ int main(int argc, char** argv) {
             options.domain_id,
             options.topic);
 
+        const bool shm_available = publisher.shared_memory_available();
+        std::cerr << (shm_available
+            ? "[dds] shared-memory/PSMX available\n"
+            : "[dds] shared-memory/PSMX unavailable\n");
+        if (options.require_shm && !shm_available) {
+            return 3;
+        }
+
         pico_dds_bridge::TrackingParser parser;
-        pico_dds_bridge::XRoboToolkitClient client(/*queue_capacity=*/8);
+        pico_dds_bridge::XRoboToolkitClient client;
 
         if (!client.start()) {
             return 2;
@@ -88,28 +102,77 @@ int main(int argc, char** argv) {
             << ", topic=" << options.topic << '\n';
 
         std::uint64_t sequence = 0;
+        std::uint64_t frames_published = 0;
+        std::uint64_t parse_failures = 0;
+        std::uint64_t loan_failures = 0;
+        std::uint64_t parse_time_us = 0;
+        std::uint64_t fill_write_time_us = 0;
+        std::chrono::steady_clock::time_point stats_time =
+            std::chrono::steady_clock::now();
+        std::uint64_t stats_frames = 0;
 
         while (g_running.load()) {
-            std::unique_ptr<pico_dds_bridge::RawFrame> raw =
+            pico_dds_bridge::RawFrameSlot* raw =
                 client.wait_pop(std::chrono::milliseconds(100));
             if (!raw) {
                 continue;
             }
 
-            auto frame = parser.parse(
-                raw->json,
-                sequence++,
-                raw->receive_timestamp_ns);
+            auto* sample = publisher.request_sample();
+            if (sample == nullptr) {
+                ++loan_failures;
+                client.release(raw);
+                continue;
+            }
 
-                if (!frame) {
+            const auto parse_start = std::chrono::steady_clock::now();
+            const bool parsed = parser.parse_into(
+                raw->data.get(), raw->length, raw->capacity,
+                sequence++, raw->receive_timestamp_ns, *sample);
+            const auto parse_end = std::chrono::steady_clock::now();
+            client.release(raw);
+            if (!parsed) {
+                ++parse_failures;
+                publisher.cancel(sample);
                 continue;
             }
 
             if (options.robot_coordinates) {
-                pico_dds_bridge::convert_to_robot_coordinates(*frame);
+                pico_dds_bridge::convert_to_robot_coordinates(*sample);
             }
+            const auto write_start = std::chrono::steady_clock::now();
+            publisher.publish(sample);
+            const auto write_end = std::chrono::steady_clock::now();
+            parse_time_us += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    parse_end - parse_start).count());
+            fill_write_time_us += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    write_end - write_start).count());
+            ++frames_published;
+            ++stats_frames;
 
-            publisher.publish(*frame);
+            const auto now = std::chrono::steady_clock::now();
+            if (now - stats_time >= std::chrono::seconds(5)) {
+                const double seconds = std::chrono::duration<double>(now - stats_time).count();
+                std::cerr
+                    << "[stats] json_capacity=" << pico_dds_bridge::kMaxJsonSize
+                    << " parse_time_us="
+                    << (stats_frames > 0 ? parse_time_us / stats_frames : 0)
+                    << " dds_fill_write_time_us="
+                    << (stats_frames > 0 ? fill_write_time_us / stats_frames : 0)
+                    << " frame_hz=" << (seconds > 0.0 ? stats_frames / seconds : 0.0)
+                    << " queue_drops=" << client.dropped_frames()
+                    << " parse_failures=" << parse_failures
+                    << " loan_failures=" << loan_failures
+                    << " frames=" << frames_published
+                    << " shm=" << (shm_available ? "true" : "false")
+                    << '\n';
+                stats_time = now;
+                stats_frames = 0;
+                parse_time_us = 0;
+                fill_write_time_us = 0;
+            }
         }
 
         client.stop();

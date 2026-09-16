@@ -102,13 +102,18 @@ Start:
 
 1. XRoboToolkit on the PICO.
 2. XRoboToolkit PC Service on the PC.
-3. This bridge.
+3. RouDi: `./scripts/run_roudi.sh`.
+4. This bridge.
 
 Then:
 
 ```bash
 ./scripts/run.sh
 ```
+
+The runtime scripts configure CycloneDDS PSMX through
+`config/cyclonedds.xml`. Use `./scripts/run.sh --require-shm` to fail fast if
+shared-memory/PSMX is unavailable.
 
 Optional DDS settings:
 
