@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pico-tracking-mujoco-viewer"
+version = "0.1.0"
+description = "Standalone MuJoCo viewer for pico_dds_bridge tracking data"
+requires-python = ">=3.10"
+dependencies = [
+    "cyclonedds==11.0.1",
+    "mujoco>=3.2",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+pico-mujoco-viewer = "pico_mujoco_viewer:main"
+
+[tool.uv]
+index-url = "https://mirrors.aliyun.com/pypi/simple"
+
+[tool.setuptools]
+py-modules = ["pico_mujoco_viewer"]
