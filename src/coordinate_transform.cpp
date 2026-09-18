@@ -5,11 +5,14 @@
 namespace pico_dds_bridge {
 namespace {
 
+// Proper right-handed rotation (det=+1) from PICO tracking axes to robot
+// axes (X forward, Y left, Z up). A pure axis permutation like (z, -x, y)
+// is a reflection (det=-1) and mirrors left/right.
 void convert_vector(pico_dds_Vec3& value) {
     const double x = value.x;
     const double y = value.y;
     const double z = value.z;
-    value.x = z;
+    value.x = -z;
     value.y = -x;
     value.z = y;
 }
@@ -18,7 +21,7 @@ void convert_orientation(pico_dds_Quaternion& value) {
     const double x = value.x;
     const double y = value.y;
     const double z = value.z;
-    value.x = z;
+    value.x = -z;
     value.y = -x;
     value.z = y;
 }

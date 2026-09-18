@@ -91,7 +91,7 @@ class MotionTracker(IdlStruct, typename="pico_dds::MotionTracker"):
 
 @dataclass
 class TrackingFrame(IdlStruct, typename="pico_dds::TrackingFrame"):
-    sequence: uint64
+    frame_seq: uint64
     source_timestamp_ns: int64
     receive_timestamp_ns: int64
     input_mode: int32
@@ -248,12 +248,26 @@ class TrackingScene:
     def update(self, frame: TrackingFrame) -> None:
         self.reset_frame()
 
+        # PICO's tracking origin sits at its anchor, not on the floor: rebase
+        # the frame so the lowest foot joint defines ground level.
+        ground_z = 0.0
+        body_count = min(int(frame.body_count), len(frame.body))
+        if body_count > min(FOOT_JOINTS):
+            ground_z = min(
+                frame.body[i].tracking.pose.position.z
+                for i in FOOT_JOINTS
+                if frame.body[i].tracking.valid
+            ) if any(frame.body[i].tracking.valid for i in FOOT_JOINTS) else 0.0
+
+        def grounded(position: Vec3) -> Vec3:
+            return Vec3(position.x, position.y, position.z - ground_z)
+
         if frame.head.valid:
-            self.add_point(frame.head.pose.position, (1.0, 0.85, 0.15))
+            self.add_point(grounded(frame.head.pose.position), (1.0, 0.85, 0.15))
         if frame.left_controller.tracking.valid:
-            self.add_point(frame.left_controller.tracking.pose.position, (0.2, 0.55, 1.0))
+            self.add_point(grounded(frame.left_controller.tracking.pose.position), (0.2, 0.55, 1.0))
         if frame.right_controller.tracking.valid:
-            self.add_point(frame.right_controller.tracking.pose.position, (1.0, 0.3, 0.3))
+            self.add_point(grounded(frame.right_controller.tracking.pose.position), (1.0, 0.3, 0.3))
 
         for hand, color in (
             (frame.left_hand, (0.25, 0.75, 1.0)),
@@ -261,19 +275,22 @@ class TrackingScene:
         ):
             count = min(int(hand.count), len(hand.joints))
             positions = [
-                joint.tracking.pose.position
+                grounded(joint.tracking.pose.position)
                 for joint in hand.joints[:count]
                 if joint.tracking.valid
             ]
             self.add_chain(positions, color)
 
-        body_count = min(int(frame.body_count), len(frame.body))
-        body_positions = [
-            joint.tracking.pose.position
+        positions = [
+            grounded(joint.tracking.pose.position) if joint.tracking.valid else None
             for joint in frame.body[:body_count]
-            if joint.tracking.valid
         ]
-        self.add_chain(body_positions, (0.95, 0.55, 0.18))
+        for a, b in BODY_BONES:
+            if a < len(positions) and b < len(positions) and positions[a] is not None and positions[b] is not None:
+                self.add_segment(positions[a], positions[b], (0.95, 0.55, 0.18))
+        for index, position in enumerate(positions):
+            if position is not None and not any(index in bone for bone in BODY_BONES):
+                self.add_point(position, (0.95, 0.55, 0.18))
 
         tracker_count = min(int(frame.tracker_count), len(frame.trackers))
         tracker_positions = [
@@ -282,6 +299,22 @@ class TrackingScene:
             if tracker.tracking.valid
         ]
         self.add_chain(tracker_positions, (0.65, 0.3, 1.0))
+
+
+# PICO body-tracking joint indices (identified empirically; within each
+# left/right pair the lower index is the LEFT side):
+#   spine: 0 hips, 3 waist, 6 chest, 9 upper chest, 12 neck, 15 head
+#   clavicles: 13 L / 14 R; shoulders: 16 L / 17 R; elbows: 18 L / 19 R;
+#   wrists: 20 L / 21 R; hands: 22 L / 23 R
+#   hips L/R: 1 L / 2 R; knees: 4 L / 5 R; ankles: 7 L / 8 R; feet: 10 L / 11 R
+BODY_BONES: list[tuple[int, int]] = [
+    (0, 3), (3, 6), (6, 9), (9, 12), (12, 15),          # spine + head
+    (12, 13), (13, 16), (16, 18), (18, 20), (20, 22),   # left arm
+    (12, 14), (14, 17), (17, 19), (19, 21), (21, 23),   # right arm
+    (0, 1), (1, 4), (4, 7), (7, 10),                    # left leg
+    (0, 2), (2, 5), (5, 8), (8, 11),                    # right leg
+]
+FOOT_JOINTS = (10, 11)
 
 
 class DdsSubscriber:
@@ -294,6 +327,8 @@ class DdsSubscriber:
 
     def take_latest(self) -> TrackingFrame | None:
         samples = self._reader.take(N=64)
+        # instance disposes (e.g. a restarted bridge) surface as InvalidSample
+        samples = [s for s in samples if type(s) is TrackingFrame]
         return samples[-1] if samples else None
 
     def close(self) -> None:

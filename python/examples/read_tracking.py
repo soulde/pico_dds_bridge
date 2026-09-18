@@ -7,7 +7,7 @@ def main() -> None:
     for frame in pico.frames():
         p = frame.head.pose.position
         print(
-            f"seq={frame.sequence} "
+            f"seq={frame.frame_seq} "
             f"head_valid={frame.head.valid} "
             f"head=({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) "
             f"body={frame.body_count} "

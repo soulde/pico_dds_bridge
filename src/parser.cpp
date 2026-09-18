@@ -46,47 +46,14 @@ bool get_text(simdjson::ondemand::value value, const char*& text, std::size_t& l
     return true;
 }
 
-bool get_int64(simdjson::ondemand::object& object, const char* name, std::int64_t& value) {
-    auto result = field(object, name).get_int64();
-    if (result.error()) return false;
-    value = result.value_unsafe();
-    return true;
+void get_vec6_text(const char* text, std::size_t length, pico_dds_Vec3& linear, pico_dds_Vec3& angular) {
+    double values[6]{};
+    if (!parse_numbers(text, length, values, 6)) return;
+    linear.x = values[0]; linear.y = values[1]; linear.z = values[2];
+    angular.x = values[3]; angular.y = values[4]; angular.z = values[5];
 }
 
-bool get_uint32(simdjson::ondemand::object& object, const char* name, std::uint32_t& value) {
-    auto result = field(object, name).get_uint64();
-    if (result.error() || result.value_unsafe() > 0xffffffffULL) return false;
-    value = static_cast<std::uint32_t>(result.value_unsafe());
-    return true;
-}
-
-bool get_double(simdjson::ondemand::object& object, const char* name, double& value) {
-    auto result = field(object, name).get_double();
-    if (result.error()) return false;
-    value = result.value_unsafe();
-    return true;
-}
-
-bool get_bool(simdjson::ondemand::object& object, const char* name, bool& value) {
-    auto result = field(object, name).get_bool();
-    if (!result.error()) {
-        value = result.value_unsafe();
-        return true;
-    }
-    std::uint32_t integer = 0;
-    if (get_uint32(object, name, integer)) {
-        value = integer != 0;
-        return true;
-    }
-    return false;
-}
-
-bool get_pose(simdjson::ondemand::object& object, pico_dds_Pose& pose) {
-    auto value = field(object, "pose");
-    if (value.error() == simdjson::NO_SUCH_FIELD) value = field(object, "p");
-    const char* text = nullptr;
-    std::size_t length = 0;
-    if (value.error() || !get_text(value.value_unsafe(), text, length)) return false;
+bool get_pose_text(const char* text, std::size_t length, pico_dds_Pose& pose) {
     double values[7]{};
     if (!parse_numbers(text, length, values, 7)) return false;
     pose.position.x = values[0]; pose.position.y = values[1]; pose.position.z = values[2];
@@ -95,27 +62,81 @@ bool get_pose(simdjson::ondemand::object& object, pico_dds_Pose& pose) {
     return true;
 }
 
-void get_vec6(simdjson::ondemand::object& object, const char* name, pico_dds_Vec3& linear, pico_dds_Vec3& angular) {
-    auto value = field(object, name);
-    const char* text = nullptr;
-    std::size_t length = 0;
-    if (value.error() || !get_text(value.value_unsafe(), text, length)) return;
-    double values[6]{};
-    if (!parse_numbers(text, length, values, 6)) return;
-    linear.x = values[0]; linear.y = values[1]; linear.z = values[2];
-    angular.x = values[3]; angular.y = values[4]; angular.z = values[5];
-}
-
-void parse_state_object(simdjson::ondemand::object& object, std::int64_t fallback, pico_dds_TrackingState& output) {
+// simdjson ondemand is forward-only: unordered field lookups after the object
+// has been consumed return errors. Parse every state-like object in a single
+// ordered pass over its fields instead. When controller is non-null the same
+// pass also consumes the controller axis/button fields.
+void parse_state_object(
+    simdjson::ondemand::object& object,
+    std::int64_t fallback,
+    pico_dds_TrackingState& output,
+    pico_dds_ControllerState* controller = nullptr,
+    float* radius = nullptr,
+    std::int64_t* extra_timestamp = nullptr) {
     std::uint32_t status = 0;
-    const bool has_status = get_uint32(object, "status", status);
-    const bool has_hand_status = !has_status && get_uint32(object, "s", status);
-    output.status = status;
+    bool has_status = false;
+    bool has_hand_status = false;
+    bool pose_ok = false;
     output.timestamp_ns = fallback;
-    get_int64(object, "timeStampNs", output.timestamp_ns) || get_int64(object, "timestampNs", output.timestamp_ns);
-    const bool pose_ok = get_pose(object, output.pose);
-    get_vec6(object, "va", output.linear_velocity, output.angular_velocity);
-    get_vec6(object, "wva", output.linear_acceleration, output.angular_acceleration);
+
+    for (auto field_result : object) {
+        auto key_result = field_result.unescaped_key();
+        if (key_result.error()) continue;
+        const auto key = key_result.value_unsafe();
+        if (key == "status" || key == "s") {
+            const bool hand = key == "s";
+            auto number = field_result.value().get_uint64();
+            if (!number.error()) {
+                if (hand) has_hand_status = true; else has_status = true;
+                status = static_cast<std::uint32_t>(number.value_unsafe());
+            }
+        } else if (key == "timeStampNs" || key == "timestampNs") {
+            auto timestamp = field_result.value().get_int64();
+            if (!timestamp.error()) output.timestamp_ns = timestamp.value_unsafe();
+        } else if ((key == "pose" || key == "p") && !pose_ok) {
+            const char* text = nullptr;
+            std::size_t length = 0;
+            if (get_text(field_result.value(), text, length)) {
+                pose_ok = get_pose_text(text, length, output.pose);
+            }
+        } else if (key == "va" || key == "wva") {
+            const char* text = nullptr;
+            std::size_t length = 0;
+            if (get_text(field_result.value(), text, length)) {
+                if (key == "va") get_vec6_text(text, length, output.linear_velocity, output.angular_velocity);
+                else get_vec6_text(text, length, output.linear_acceleration, output.angular_acceleration);
+            }
+        } else if (radius != nullptr && key == "r") {
+            auto number = field_result.value().get_double();
+            if (!number.error()) *radius = static_cast<float>(number.value_unsafe());
+        } else if (extra_timestamp != nullptr && key == "t") {
+            auto ts = field_result.value().get_int64();
+            if (!ts.error()) *extra_timestamp = ts.value_unsafe();
+        } else if (controller != nullptr) {
+            if (key == "axisX" || key == "axisY" || key == "grip" || key == "trigger") {
+                auto number = field_result.value().get_double();
+                if (number.error()) continue;
+                const float v = static_cast<float>(number.value_unsafe());
+                if (key == "axisX") controller->axis_x = v;
+                else if (key == "axisY") controller->axis_y = v;
+                else if (key == "grip") controller->grip = v;
+                else controller->trigger = v;
+            } else if (key == "axisClick" || key == "primaryButton" || key == "secondaryButton" || key == "menuButton") {
+                bool button = false;
+                auto boolean = field_result.value().get_bool();
+                if (!boolean.error()) button = boolean.value_unsafe();
+                else {
+                    auto integer = field_result.value().get_uint64();
+                    if (!integer.error()) button = integer.value_unsafe() != 0;
+                }
+                if (key == "axisClick") controller->axis_click = button;
+                else if (key == "primaryButton") controller->primary_button = button;
+                else if (key == "secondaryButton") controller->secondary_button = button;
+                else controller->menu_button = button;
+            }
+        }
+    }
+    output.status = status;
     output.valid = pose_ok && (!has_status || (has_hand_status ? (status & 0x3U) != 0U : status != 0));
 }
 
@@ -128,48 +149,45 @@ void parse_controller(simdjson::ondemand::value value, std::int64_t timestamp, p
     auto object_result = value.get_object();
     if (object_result.error()) return;
     simdjson::ondemand::object object = object_result.value_unsafe();
-    parse_state_object(object, timestamp, output.tracking);
-    double number = 0.0;
-    if (get_double(object, "axisX", number)) output.axis_x = static_cast<float>(number);
-    if (get_double(object, "axisY", number)) output.axis_y = static_cast<float>(number);
-    if (get_double(object, "grip", number)) output.grip = static_cast<float>(number);
-    if (get_double(object, "trigger", number)) output.trigger = static_cast<float>(number);
-    bool button = false;
-    if (get_bool(object, "axisClick", button)) output.axis_click = button;
-    if (get_bool(object, "primaryButton", button)) output.primary_button = button;
-    if (get_bool(object, "secondaryButton", button)) output.secondary_button = button;
-    if (get_bool(object, "menuButton", button)) output.menu_button = button;
+    parse_state_object(object, timestamp, output.tracking, &output);
 }
 
 void parse_hand(simdjson::ondemand::value value, pico_dds_HandState& output) {
     auto object_result = value.get_object();
     if (object_result.error()) return;
     simdjson::ondemand::object object = object_result.value_unsafe();
-    std::uint32_t active = 0;
-    get_uint32(object, "isActive", active);
-    output.active = active != 0;
-    double scale = 1.0;
-    if (get_double(object, "scale", scale)) output.scale = static_cast<float>(scale);
-    get_int64(object, "timeStampNs", output.timestamp_ns) || get_int64(object, "timestampNs", output.timestamp_ns);
-    auto joints_value = field(object, "HandJointLocations");
-    if (joints_value.error() == simdjson::NO_SUCH_FIELD) joints_value = field(object, "joints");
-    if (joints_value.error()) return;
-    auto joints_result = joints_value.value_unsafe().get_array();
-    if (joints_result.error()) return;
-    std::size_t index = 0;
-    for (auto joint_result : joints_result.value_unsafe()) {
-        if (index >= 26) break;
-        if (joint_result.error()) continue;
-        simdjson::ondemand::value joint = joint_result.value_unsafe();
-        parse_state(joint, output.timestamp_ns, output.joints[index].tracking);
-        auto joint_object = joint.get_object();
-        if (!joint_object.error()) {
-            double radius = 0.0;
-            if (get_double(joint_object.value_unsafe(), "r", radius)) output.joints[index].radius = static_cast<float>(radius);
+    output.scale = 1.0f;
+    for (auto field_result : object) {
+        auto key_result = field_result.unescaped_key();
+        if (key_result.error()) continue;
+        const auto key = key_result.value_unsafe();
+        if (key == "isActive") {
+            auto integer = field_result.value().get_uint64();
+            if (!integer.error()) output.active = integer.value_unsafe() != 0;
+        } else if (key == "scale") {
+            auto number = field_result.value().get_double();
+            if (!number.error()) output.scale = static_cast<float>(number.value_unsafe());
+        } else if (key == "timeStampNs" || key == "timestampNs") {
+            auto timestamp = field_result.value().get_int64();
+            if (!timestamp.error()) output.timestamp_ns = timestamp.value_unsafe();
+        } else if (key == "HandJointLocations" || key == "joints") {
+            auto joints_result = field_result.value().get_array();
+            if (joints_result.error()) continue;
+            std::size_t index = 0;
+            for (auto joint_result : joints_result.value_unsafe()) {
+                if (index >= 26) break;
+                if (joint_result.error()) continue;
+                simdjson::ondemand::value joint = joint_result.value_unsafe();
+                auto joint_object = joint.get_object();
+                if (joint_object.error()) continue;
+                parse_state_object(joint_object.value_unsafe(), output.timestamp_ns,
+                                   output.joints[index].tracking, nullptr,
+                                   &output.joints[index].radius);
+                ++index;
+            }
+            output.count = static_cast<std::uint32_t>(index);
         }
-        ++index;
     }
-    output.count = static_cast<std::uint32_t>(index);
 }
 
 void parse_body(simdjson::ondemand::value value, std::int64_t timestamp, pico_dds_TrackingFrame& output) {
@@ -177,19 +195,30 @@ void parse_body(simdjson::ondemand::value value, std::int64_t timestamp, pico_dd
     if (object_result.error()) return;
     simdjson::ondemand::object object = object_result.value_unsafe();
     std::int64_t body_timestamp = timestamp;
-    get_int64(object, "timeStampNs", body_timestamp) || get_int64(object, "timestampNs", body_timestamp);
-    auto joints = field(object, "joints").get_array();
-    if (joints.error()) return;
     std::size_t index = 0;
-    for (auto joint_result : joints.value_unsafe()) {
-        if (index >= 24) break;
-        if (joint_result.error()) continue;
-        simdjson::ondemand::value joint = joint_result.value_unsafe();
-        output.body[index].role = static_cast<std::uint32_t>(index);
-        parse_state(joint, body_timestamp, output.body[index].tracking);
-        auto joint_object = joint.get_object();
-        if (!joint_object.error()) get_int64(joint_object.value_unsafe(), "t", output.body[index].imu_timestamp_ns);
-        ++index;
+    for (auto field_result : object) {
+        auto key_result = field_result.unescaped_key();
+        if (key_result.error()) continue;
+        const auto key = key_result.value_unsafe();
+        if (key == "timeStampNs" || key == "timestampNs") {
+            auto ts = field_result.value().get_int64();
+            if (!ts.error()) body_timestamp = ts.value_unsafe();
+        } else if (key == "joints") {
+            auto joints = field_result.value().get_array();
+            if (joints.error()) continue;
+            for (auto joint_result : joints.value_unsafe()) {
+                if (index >= 24) break;
+                if (joint_result.error()) continue;
+                simdjson::ondemand::value joint = joint_result.value_unsafe();
+                auto joint_object = joint.get_object();
+                if (joint_object.error()) continue;
+                output.body[index].role = static_cast<std::uint32_t>(index);
+                parse_state_object(joint_object.value_unsafe(), body_timestamp,
+                                   output.body[index].tracking, nullptr, nullptr,
+                                   &output.body[index].imu_timestamp_ns);
+                ++index;
+            }
+        }
     }
     output.body_count = static_cast<std::uint32_t>(index);
 }
@@ -198,18 +227,25 @@ void parse_motion(simdjson::ondemand::value value, std::int64_t timestamp, pico_
     auto object_result = value.get_object();
     if (object_result.error()) return;
     simdjson::ondemand::object object = object_result.value_unsafe();
-    std::int64_t motion_timestamp = timestamp;
-    get_int64(object, "timeStampNs", motion_timestamp) || get_int64(object, "timestampNs", motion_timestamp);
-    auto joints = field(object, "joints").get_array();
-    if (joints.error()) return;
     std::size_t index = 0;
-    for (auto joint_result : joints.value_unsafe()) {
-        if (index >= 5) break;
-        if (joint_result.error()) continue;
-        simdjson::ondemand::value joint = joint_result.value_unsafe();
-        output.trackers[index].index = static_cast<std::uint32_t>(index);
-        parse_state(joint, motion_timestamp, output.trackers[index].tracking);
-        ++index;
+    for (auto field_result : object) {
+        auto key_result = field_result.unescaped_key();
+        if (key_result.error()) continue;
+        const auto key = key_result.value_unsafe();
+        if (key != "joints") continue;
+        auto joints = field_result.value().get_array();
+        if (joints.error()) continue;
+        for (auto joint_result : joints.value_unsafe()) {
+            if (index >= 5) break;
+            if (joint_result.error()) continue;
+            simdjson::ondemand::value joint = joint_result.value_unsafe();
+            auto joint_object = joint.get_object();
+            if (joint_object.error()) continue;
+            output.trackers[index].index = static_cast<std::uint32_t>(index);
+            parse_state_object(joint_object.value_unsafe(), timestamp,
+                               output.trackers[index].tracking);
+            ++index;
+        }
     }
     output.tracker_count = static_cast<std::uint32_t>(index);
 }
@@ -273,24 +309,33 @@ bool TrackingParser::parse_into(const char* json, std::size_t length, std::size_
         } else if (key == "Controller" || key == "controller") {
             auto object_result = root_field.value().get_object();
             if (!object_result.error()) {
-                auto object = object_result.value_unsafe();
-                auto left = field(object, "left");
-                if (left.error() == simdjson::NO_SUCH_FIELD) left = field(object, "Left");
-                auto right = field(object, "right");
-                if (right.error() == simdjson::NO_SUCH_FIELD) right = field(object, "Right");
-                if (!left.error()) parse_controller(left.value_unsafe(), output.source_timestamp_ns, output.left_controller);
-                if (!right.error()) parse_controller(right.value_unsafe(), output.source_timestamp_ns, output.right_controller);
+                // Single ordered pass: looking up both children before parsing
+                // would consume the first child's value (ondemand is
+                // forward-only), so dispatch each child as it is reached.
+                for (auto child : object_result.value_unsafe()) {
+                    auto child_key = child.unescaped_key();
+                    if (child_key.error()) continue;
+                    const auto name = child_key.value_unsafe();
+                    if (name == "left" || name == "Left") {
+                        parse_controller(child.value(), output.source_timestamp_ns, output.left_controller);
+                    } else if (name == "right" || name == "Right") {
+                        parse_controller(child.value(), output.source_timestamp_ns, output.right_controller);
+                    }
+                }
             }
         } else if (key == "Hand" || key == "hand") {
             auto object_result = root_field.value().get_object();
             if (!object_result.error()) {
-                auto object = object_result.value_unsafe();
-                auto left = field(object, "leftHand");
-                if (left.error() == simdjson::NO_SUCH_FIELD) left = field(object, "left");
-                auto right = field(object, "rightHand");
-                if (right.error() == simdjson::NO_SUCH_FIELD) right = field(object, "right");
-                if (!left.error()) parse_hand(left.value_unsafe(), output.left_hand);
-                if (!right.error()) parse_hand(right.value_unsafe(), output.right_hand);
+                for (auto child : object_result.value_unsafe()) {
+                    auto child_key = child.unescaped_key();
+                    if (child_key.error()) continue;
+                    const auto name = child_key.value_unsafe();
+                    if (name == "leftHand" || name == "left") {
+                        parse_hand(child.value(), output.left_hand);
+                    } else if (name == "rightHand" || name == "right") {
+                        parse_hand(child.value(), output.right_hand);
+                    }
+                }
             }
         } else if (key == "Body" || key == "body") {
             parse_body(root_field.value(), output.source_timestamp_ns, output);

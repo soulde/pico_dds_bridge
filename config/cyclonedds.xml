@@ -6,7 +6,7 @@
         <General>
             <Interfaces>
                 <PubSubMessageExchange
-                    name="iox"
+                    type="iox"
                     library="psmx_iox"
                     config="LOG_LEVEL=INFO;"/>
             </Interfaces>

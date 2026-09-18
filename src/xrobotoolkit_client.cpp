@@ -167,8 +167,17 @@ void XRoboToolkitClient::on_callback(
         }
 
         RawFrameSlot& frame = slots_[index];
-        const char* source = static_cast<const char*>(user_data);
-        const std::size_t length = std::strlen(source);
+        // userData is a PXREADevStateJson struct; the JSON payload lives in
+        // stateJson (fixed-size buffer, NUL-terminated by the SDK).
+        const PXREADevStateJson& state =
+            *static_cast<const PXREADevStateJson*>(user_data);
+        const char* source = state.stateJson;
+        const char* source_end =
+            source + sizeof(state.stateJson);
+        const char* nul =
+            static_cast<const char*>(std::memchr(source, '\0', sizeof(state.stateJson)));
+        const std::size_t length =
+            static_cast<std::size_t>((nul != nullptr ? nul : source_end) - source);
         if (length > kMaxJsonSize) {
             dropped_frames_.fetch_add(1, std::memory_order_relaxed);
             return;

@@ -91,7 +91,7 @@ class MotionTracker(IdlStruct, typename="pico_dds::MotionTracker"):
 
 @dataclass
 class TrackingFrame(IdlStruct, typename="pico_dds::TrackingFrame"):
-    sequence: uint64
+    frame_seq: uint64
     source_timestamp_ns: int64
     receive_timestamp_ns: int64
     input_mode: int32
