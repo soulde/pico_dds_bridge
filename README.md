@@ -45,8 +45,9 @@ Ubuntu 22.04/24.04:
 - XRoboToolkit `PXREARobotSDK`
 - Python >= 3.10 for the optional user package
 
-The scripts install CycloneDDS and PXREARobotSDK into this repository's
-`.deps/` directory. They do not install vendor SDK files globally.
+The scripts install CycloneDDS, PXREARobotSDK, and the XRoboToolkit PC Service
+package. Source-built dependencies are placed in this repository's `.deps/`
+directory; the PC Service `.deb` is installed system-wide through `dpkg`.
 
 ## 1. XRoboToolkit PC Service
 
@@ -54,8 +55,15 @@ The PC Service application is a separate runtime process and still needs to be
 installed and started. This repository installs/builds only the C++ Robot SDK
 used to talk to that service.
 
-Install the official `.deb` as documented upstream and start the PC Service
-before running the bridge.
+`./scripts/bootstrap.sh` downloads and installs the official Ubuntu 22.04
+`amd64` `.deb` automatically. Start the PC Service from the Ubuntu
+applications menu before running the bridge. Override the package URL or
+version when needed:
+
+```bash
+XROBO_PC_SERVICE_VERSION=1.0.0 ./scripts/install_xrobotoolkit_pc_service.sh
+XROBO_PC_SERVICE_URL=<deb-url> ./scripts/install_xrobotoolkit_pc_service.sh
+```
 
 ## 2. Bootstrap
 
@@ -174,7 +182,7 @@ retarget node:
 
 ```bash
 ./scripts/run.sh --coordinates xrobot
-python scripts/pico_dds_retarget_node.py --visualize
+./scripts/run_retarget.sh --visualize
 ```
 
 The default robot is GMR's `unitree_g1` 29-DoF model and the default IK file

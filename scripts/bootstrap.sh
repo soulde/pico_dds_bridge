@@ -9,6 +9,7 @@ git -C "${ROOT}" submodule update --init --recursive
 "${ROOT}/scripts/install_iceoryx.sh"
 "${ROOT}/scripts/install_cyclonedds.sh"
 "${ROOT}/scripts/install_simdjson.sh"
+"${ROOT}/scripts/install_xrobotoolkit_pc_service.sh"
 "${ROOT}/scripts/install_xrobotoolkit_sdk.sh"
 "${ROOT}/scripts/install_python.sh"
 

@@ -7,6 +7,7 @@ sudo apt-get install -y \
     cmake \
     ninja-build \
     git \
+    curl \
     pkg-config \
     bison \
     flex \
