@@ -9,6 +9,8 @@ description = "DDS-only Python client for the PICO tracking bridge"
 requires-python = ">=3.10"
 dependencies = [
     "cyclonedds==11.0.1",
+    "numpy>=1.24",
+    "scipy>=1.10",
 ]
 
 [tool.setuptools.packages.find]

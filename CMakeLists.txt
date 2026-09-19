@@ -62,6 +62,11 @@ endif()
 add_executable(pico_dds_bridge src/main.cpp)
 target_link_libraries(pico_dds_bridge PRIVATE pico_bridge_core)
 
+enable_testing()
+add_executable(coordinate_transform_test tests/coordinate_transform_test.cpp)
+target_link_libraries(coordinate_transform_test PRIVATE pico_bridge_core)
+add_test(NAME coordinate_transform_test COMMAND coordinate_transform_test)
+
 # Make the locally-installed vendor SDK discoverable at runtime without
 # forcing users to modify /etc/ld.so.conf.
 if(PXREARobotSDK_LIBRARY)

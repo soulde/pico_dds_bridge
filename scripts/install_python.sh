@@ -11,6 +11,7 @@ export LD_LIBRARY_PATH="${ROOT}/.deps/xrobotoolkit/lib:${ROOT}/.deps/cyclonedds/
 "${VENV}/bin/pip" install \
 	git+https://github.com/eclipse-cyclonedds/cyclonedds-python
 "${VENV}/bin/pip" install -e "${ROOT}/python"
+"${VENV}/bin/pip" install -e "${ROOT}/third_party/GMR"
 
 echo "Python SDK installed in: ${VENV}"
 echo "Activate with: source ${VENV}/bin/activate"

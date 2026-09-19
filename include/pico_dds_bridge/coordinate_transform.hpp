@@ -4,6 +4,12 @@
 
 namespace pico_dds_bridge {
 
-void convert_to_robot_coordinates(pico_dds_TrackingFrame& frame);
+enum class CoordinateSystem {
+    Pico,
+    Robot,
+    Xrobot,
+};
+
+void convert_to_coordinates(pico_dds_TrackingFrame& frame, CoordinateSystem system);
 
 }  // namespace pico_dds_bridge

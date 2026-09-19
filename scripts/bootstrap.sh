@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+git -C "${ROOT}" submodule update --init --recursive
+
 "${ROOT}/scripts/install_deps_ubuntu.sh"
 "${ROOT}/scripts/install_iceoryx.sh"
 "${ROOT}/scripts/install_cyclonedds.sh"

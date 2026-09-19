@@ -25,7 +25,8 @@ void on_signal(int) {
 struct Options {
     std::uint32_t domain_id{0};
     std::string topic{"pico/tracking"};
-    bool robot_coordinates{false};
+    pico_dds_bridge::CoordinateSystem coordinates{
+        pico_dds_bridge::CoordinateSystem::Pico};
     bool require_shm{false};
 };
 
@@ -50,16 +51,27 @@ Options parse_options(const int argc, char** argv) {
             }
         } else if (arg == "--topic" && i + 1 < argc) {
             options.topic = argv[++i];
-        } else if (arg == "--robot-coordinates") {
-            options.robot_coordinates = true;
+        } else if (arg == "--coordinates" && i + 1 < argc) {
+            const std::string value{argv[++i]};
+            if (value == "pico") {
+                options.coordinates = pico_dds_bridge::CoordinateSystem::Pico;
+            } else if (value == "robot") {
+                options.coordinates = pico_dds_bridge::CoordinateSystem::Robot;
+            } else if (value == "xrobot") {
+                options.coordinates = pico_dds_bridge::CoordinateSystem::Xrobot;
+            } else {
+                throw std::runtime_error(
+                    "invalid --coordinates value: " + value +
+                    " (expected pico, robot, or xrobot)");
+            }
         } else if (arg == "--require-shm") {
             options.require_shm = true;
         } else if (arg == "--help" || arg == "-h") {
             std::cout
-                << "Usage: pico_dds_bridge [--domain N] [--topic NAME] [--robot-coordinates] [--require-shm]\n"
+                << "Usage: pico_dds_bridge [--domain N] [--topic NAME] [--coordinates pico|robot|xrobot] [--require-shm]\n"
                 << "Default domain: 0\n"
                 << "Default topic : pico/tracking\n"
-                << "Coordinate output: PICO (default), or robot (X forward, Y left, Z up)\n";
+                << "Coordinate output: pico (default), robot (X forward, Y left, Z up), or xrobot\n";
             std::exit(0);
         } else {
             throw std::runtime_error("unknown argument: " + std::string(arg));
@@ -137,9 +149,7 @@ int main(int argc, char** argv) {
                 continue;
             }
 
-            if (options.robot_coordinates) {
-                pico_dds_bridge::convert_to_robot_coordinates(*sample);
-            }
+            pico_dds_bridge::convert_to_coordinates(*sample, options.coordinates);
             const auto write_start = std::chrono::steady_clock::now();
             publisher.publish(sample);
             const auto write_end = std::chrono::steady_clock::now();

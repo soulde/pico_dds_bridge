@@ -121,15 +121,18 @@ Optional DDS settings:
 ./scripts/run.sh --domain 0 --topic pico/tracking
 ```
 
-To convert tracking output to the robot coordinate system (`X` forward,
-`Y` left, `Z` up), enable the opt-in flag:
+Select the tracking output coordinate convention with one parameter:
 
 ```bash
-./scripts/run.sh --robot-coordinates
+./scripts/run.sh --coordinates pico
+./scripts/run.sh --coordinates robot
+./scripts/run.sh --coordinates xrobot
 ```
 
-Without this flag, output keeps the PICO coordinate system (`X` right,
-`Y` up, `Z` inward).
+`pico` is the default and keeps the PICO coordinate system (`X` right,
+`Y` up, `Z` inward). `robot` outputs (`X` forward, `Y` left, `Z` up).
+`xrobot` applies the same `(x, y, z) -> (x, -z, y)` conversion used by
+GMR's XRobotStreamer.
 
 ## 5. Python consumer
 
@@ -152,6 +155,32 @@ print(frame.trackers[:frame.tracker_count])
 ```
 
 The Python package has zero XRoboToolkit dependency.
+
+## 6. GMR retargeting
+
+GMR is pinned as a git submodule at `third_party/GMR`; the retarget node and
+the tuned XRobot-to-G1 config use that checkout directly. Clone recursively,
+or initialize it after cloning:
+
+```bash
+git clone --recurse-submodules https://github.com/soulde/pico_dds_bridge.git
+git submodule update --init --recursive
+source .venv/bin/activate
+pip install -e third_party/GMR
+```
+
+Run the bridge with the GMR/XRobot coordinate convention, then start the
+retarget node:
+
+```bash
+./scripts/run.sh --coordinates xrobot
+python scripts/pico_dds_retarget_node.py --visualize
+```
+
+The default robot is GMR's `unitree_g1` 29-DoF model and the default IK file
+is `third_party/GMR/general_motion_retargeting/ik_configs/xrobot_soulde_to_g1.json`.
+The DDS adapter accepts `xrobot` input directly; `pico` is available for a
+bridge that intentionally leaves the raw PICO coordinates unchanged.
 
 ## Data contract
 
