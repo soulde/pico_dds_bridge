@@ -38,7 +38,7 @@ from general_motion_retargeting import (
 )
 from pico_tracking import RobotStatePublisher
 from pico_tracking.gmr_source import PicoDdsGmrSource
-from scripts.retarget_target import resolve_target
+from scripts.retarget_target import available_robots, resolve_target
 
 
 _running = True
@@ -69,7 +69,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--robot",
-        choices=["unitree_g1", "unitree_g1_with_hands", "chocolate"],
+        choices=available_robots(),
         default="unitree_g1",
         help="GMR robot model",
     )
@@ -94,7 +94,7 @@ def main() -> None:
         args.ik_config, args.mjcf = resolve_target(
             args.robot, GMR_ROOT, args.ik_config, args.mjcf
         )
-    except (FileNotFoundError, RuntimeError) as error:
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
         raise SystemExit(str(error)) from error
 
     print("[1/2] Connecting to pico_dds_bridge...")

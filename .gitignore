@@ -5,3 +5,4 @@ build/
 __pycache__/
 *.pyc
 python/pico_tracking.egg-info/
+scripts/run_local_*.sh

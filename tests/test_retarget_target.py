@@ -1,8 +1,6 @@
 from pathlib import Path
-import sys
-import types
 
-from scripts.retarget_target import resolve_target
+from scripts.retarget_target import available_robots, resolve_target
 
 
 def test_g1_keeps_tuned_default_config():
@@ -12,20 +10,23 @@ def test_g1_keeps_tuned_default_config():
     assert mjcf is None
 
 
-def test_chocolate_loads_installed_registration(monkeypatch, tmp_path):
+def test_installed_robot_entry_point_registers_model_and_config(monkeypatch, tmp_path):
     from general_motion_retargeting import IK_CONFIG_DICT, ROBOT_XML_DICT
 
-    config = tmp_path / "pico_to_chocolate.json"
-    model = tmp_path / "chocolate.xml"
+    config = tmp_path / "pico_to_sample_bot.json"
+    model = tmp_path / "sample_bot.xml"
     config.write_text("{}")
     model.write_text("<mujoco/>")
-    plugin = types.ModuleType("robots.chocolate.registration")
 
     def register_gmr():
-        monkeypatch.setitem(IK_CONFIG_DICT.setdefault("xrobot", {}), "chocolate", config)
-        monkeypatch.setitem(ROBOT_XML_DICT, "chocolate", model)
+        monkeypatch.setitem(IK_CONFIG_DICT.setdefault("xrobot", {}), "sample_bot", config)
+        monkeypatch.setitem(ROBOT_XML_DICT, "sample_bot", model)
 
-    plugin.register_gmr = register_gmr
-    monkeypatch.setitem(sys.modules, "robots.chocolate.registration", plugin)
+    monkeypatch.setattr(
+        "scripts.retarget_target.gmr_available_robots",
+        lambda: ("unitree_g1", "unitree_g1_with_hands", "sample_bot"),
+    )
+    monkeypatch.setattr("scripts.retarget_target.register_robot", lambda name: register_gmr())
 
-    assert resolve_target("chocolate", tmp_path) == (config, model)
+    assert "sample_bot" in available_robots()
+    assert resolve_target("sample_bot", tmp_path) == (config, model)

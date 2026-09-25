@@ -190,22 +190,21 @@ is `third_party/GMR/general_motion_retargeting/ik_configs/xrobot_soulde_to_g1.js
 The DDS adapter accepts `xrobot` input directly; `pico` is available for a
 bridge that intentionally leaves the raw PICO coordinates unchanged.
 
-To retarget to Chocolate, clone the private `gmr-chocolate` repository beside
-this checkout and install it into the same Python environment:
+To retarget to another robot, install its integration package into the same
+Python environment. Packages expose a registration function through GMR's
+`gmr.robots` entry-point group; the entry-point name becomes the
+value accepted by `--robot`:
 
 ```bash
 source .venv/bin/activate
-python -m pip install -e ../gmr-chocolate
-./scripts/run_retarget.sh --robot chocolate --visualize
+python -m pip install -e /path/to/robot-integration
+./scripts/run_retarget.sh --robot <registered-name> --visualize
 ```
 
 Keep the bridge publishing `--coordinates xrobot`. The retarget node loads the
-installed Chocolate MJCF and `pico_to_chocolate.json` automatically; its launch
-directory does not matter. An external `robot/state` player must use the
-Chocolate MJCF, for example `--xml ../gmr-chocolate/robots/chocolate/assets/chocolate.xml`.
-Installing Chocolate makes it available to this retarget node; other GMR
-scripts still need explicit `--mjcf` and `--ik-config` paths unless they call
-`robots.chocolate.registration.register_gmr()`.
+registered MJCF and XRobot IK configuration regardless of its launch directory.
+An external `robot/state` player must use the matching robot MJCF. Other GMR
+scripts can also discover the installed robot through GMR's registration API.
 
 ## Data contract
 

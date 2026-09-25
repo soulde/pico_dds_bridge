@@ -2,6 +2,19 @@
 
 from pathlib import Path
 
+from general_motion_retargeting.robot_plugins import (
+    available_robots as gmr_available_robots,
+    register_robot,
+)
+
+
+BUILTIN_ROBOTS = ("unitree_g1", "unitree_g1_with_hands")
+
+
+def available_robots() -> tuple[str, ...]:
+    """Return robot names supplied by GMR and installed packages."""
+    return gmr_available_robots()
+
 
 def resolve_target(
     robot: str,
@@ -11,25 +24,21 @@ def resolve_target(
 ) -> tuple[Path, Path | None]:
     from general_motion_retargeting import IK_CONFIG_DICT, ROBOT_XML_DICT
 
-    if robot == "chocolate":
+    if robot not in available_robots():
+        raise ValueError(f"unknown robot {robot!r}; install its integration package")
+    register_robot(robot)
+    if robot not in BUILTIN_ROBOTS:
         try:
-            from robots.chocolate.registration import register_gmr
-        except ModuleNotFoundError as error:
-            if error.name not in {
-                "robots",
-                "robots.chocolate",
-                "robots.chocolate.registration",
-            }:
-                raise
+            registered_config = IK_CONFIG_DICT["xrobot"][robot]
+            registered_model = ROBOT_XML_DICT[robot]
+        except KeyError as error:
             raise RuntimeError(
-                "Chocolate is not installed in this Python environment; "
-                "run: pip install -e /path/to/gmr-chocolate"
+                f"robot plugin {robot!r} did not register an XRobot IK config and MJCF"
             ) from error
-        register_gmr()
         if ik_config is None:
-            ik_config = Path(IK_CONFIG_DICT["xrobot"]["chocolate"])
+            ik_config = Path(registered_config)
         if mjcf is None:
-            mjcf = Path(ROBOT_XML_DICT["chocolate"])
+            mjcf = Path(registered_model)
     elif ik_config is None:
         ik_config = (
             gmr_root
