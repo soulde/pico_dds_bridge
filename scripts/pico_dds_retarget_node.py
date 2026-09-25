@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Retarget pico DDS body tracking to Unitree G1 using the GMR submodule.
+"""Retarget pico DDS body tracking to a GMR robot.
 
 The runtime path is:
 
@@ -27,6 +27,7 @@ PYTHON_ROOT = REPO_ROOT / "python"
 GMR_ROOT = REPO_ROOT / "third_party" / "GMR"
 sys.path.insert(0, str(PYTHON_ROOT))
 sys.path.insert(0, str(GMR_ROOT))
+sys.path.insert(0, str(REPO_ROOT))
 
 import mujoco as mj
 from rich import print
@@ -37,6 +38,7 @@ from general_motion_retargeting import (
 )
 from pico_tracking import RobotStatePublisher
 from pico_tracking.gmr_source import PicoDdsGmrSource
+from scripts.retarget_target import resolve_target
 
 
 _running = True
@@ -51,8 +53,6 @@ def _stop(signum, _frame) -> None:
 def main() -> None:
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
-
-    gmr_config = GMR_ROOT / "general_motion_retargeting" / "ik_configs" / "xrobot_soulde_to_g1.json"
 
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -69,15 +69,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--robot",
-        choices=["unitree_g1", "unitree_g1_with_hands"],
+        choices=["unitree_g1", "unitree_g1_with_hands", "chocolate"],
         default="unitree_g1",
         help="GMR robot model",
     )
     parser.add_argument(
         "--ik-config",
         type=Path,
-        default=gmr_config,
-        help="GMR IK configuration",
+        default=None,
+        help="GMR IK configuration; defaults to the selected robot's PICO config",
     )
     parser.add_argument(
         "--mjcf",
@@ -90,10 +90,12 @@ def main() -> None:
     parser.add_argument("--transparent-robot", type=float, default=0.5)
     args = parser.parse_args()
 
-    if not args.ik_config.is_file():
-        raise SystemExit(f"GMR IK config does not exist: {args.ik_config}")
-    if args.mjcf is not None and not args.mjcf.is_file():
-        raise SystemExit(f"MJCF does not exist: {args.mjcf}")
+    try:
+        args.ik_config, args.mjcf = resolve_target(
+            args.robot, GMR_ROOT, args.ik_config, args.mjcf
+        )
+    except (FileNotFoundError, RuntimeError) as error:
+        raise SystemExit(str(error)) from error
 
     print("[1/2] Connecting to pico_dds_bridge...")
     source = PicoDdsGmrSource(
